@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-  int sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_RAW);
+  int sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_UDP);
   if (sockfd == -1) {
     perror("socket");
     exit(EXIT_FAILURE);
@@ -51,20 +51,16 @@ int main(int argc, char **argv) {
   char datagram[DATAGRAM_SIZE];       // datagram buffer including udp and ip header
   memset(datagram, 0, DATAGRAM_SIZE); /* zero out the buffer */
 
-  // fill payload
-  char *data = datagram + sizeof(struct udphdr) + sizeof(struct ip);
-  strcpy(data, argv[2]);
-
   struct ip *iph = (struct ip *)datagram;
   // fill IP header
   iph->ip_hl = 5; // header length in 32bit octes
   iph->ip_v = 4; // IP protocol version
-  iph->ip_tos = 0; // type of service (controls priority)
-  iph->ip_len = sizeof(struct ip) + sizeof(struct udphdr) + strlen(argv[2]);
+  iph->ip_tos = 16; // type of service (controls priority)
+  iph->ip_len = htons(sizeof(struct ip) + sizeof(struct udphdr) + strlen(argv[2])); // packet size including header
   iph->ip_id = htons(54321); //id sequence number (for fragmentation, doesn't matter here)
   iph->ip_off = 0; // offset in datagram
-  iph->ip_ttl = 255; // time to live
-  iph->ip_p = UDP; // transport layer protocol (17 is UDP)
+  iph->ip_ttl = 64; // time to live
+  iph->ip_p = UDP; // transport layer protocol
   iph->ip_sum = 0;		/* set it to 0 before computing the actual checksum later */
   iph->ip_src.s_addr = inet_addr("127.0.0.1");
   iph->ip_dst.s_addr = din.sin_addr.s_addr;
@@ -73,8 +69,12 @@ int main(int argc, char **argv) {
   // fill UDP header
   udph->source = htons(PORT_TO_USE);
   udph->dest = htons(SERVICE);
-  udph->len = htons(sizeof(struct udphdr) + strlen(data)); // udp header + payload size
+  udph->len = htons(sizeof(struct udphdr) + strlen(argv[2])); // udp header + payload size
   udph->check = 0; // leave zero so that kernel will fill the correct value
+
+  // fill payload
+  char *data = datagram + sizeof(struct udphdr) + sizeof(struct ip);
+  strcpy(data, argv[2]);
 
   // fill checksum
   iph->ip_sum = csum((unsigned short *) datagram, iph->ip_len >> 1); // >> 2 to get number of words (2 bytes)
@@ -102,14 +102,10 @@ int main(int argc, char **argv) {
       exit(EXIT_FAILURE);
     }
 
-    struct ip *ipheader = (struct ip *)recvbuf;
-    if (htons(ipheader->ip_p) != 17)
-
     struct udphdr *header = (struct udphdr *)(recvbuf + sizeof(struct ip));
 
     // find udp datagrams for specified port
     if (ntohs(header->dest) == PORT_TO_USE) {
-      printf("%d\n", ntohs(header->len));
       if (write(STDIN_FILENO, recvbuf + sizeof(struct udphdr) + sizeof(struct ip),
                 ntohs(header->len) - sizeof(struct udphdr)) != ntohs(header->len)- sizeof(struct udphdr)) {
         perror("write");
