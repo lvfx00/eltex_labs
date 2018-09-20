@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
   iph->ip_ttl = 64; // time to live
   iph->ip_p = UDP; // transport layer protocol
   iph->ip_sum = 0;		/* set it to 0 before computing the actual checksum later */
-  iph->ip_src.s_addr = inet_addr("127.0.0.1");
+  iph->ip_src.s_addr = 0;
   iph->ip_dst.s_addr = din.sin_addr.s_addr;
 
   struct udphdr *udph = (struct udphdr *)(datagram + sizeof(struct ip)); // udp header pointer
