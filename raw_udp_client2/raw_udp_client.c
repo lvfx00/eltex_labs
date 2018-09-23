@@ -6,12 +6,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <string.h>
+#include <net/if.h>
 #include <unistd.h>
 
 #define SERVICE 52674
 #define UDP 17
 #define PORT_TO_USE 52675
 #define DATAGRAM_SIZE 4096
+#define MAX_IP_OUTPUT_LEN 64
 
 unsigned short csum (unsigned short *buf, int nwords) {
   unsigned long sum;
@@ -38,13 +42,35 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-  // init destination address
+  // init destination IP address structure
   struct sockaddr_in din;
   din.sin_family = AF_INET;
   din.sin_port = htons(SERVICE); // set network byte order
   int ret = inet_pton(AF_INET, argv[1], &din.sin_addr);
   if (ret == 0) {
     fprintf(stderr, "inet_pton - invalid address string\n");
+    exit(EXIT_FAILURE);
+  }
+
+  char ip_output[MAX_IP_OUTPUT_LEN];
+  // get default interface name
+  FILE *cmd = popen("ip route show", "r");
+  fgets(ip_output, MAX_IP_OUTPUT_LEN, cmd);
+  // got output string on the following format:
+  // default via X.Y.Z.T dev eth0  proto static
+  //                         ^^^^ need this
+  // skip first 4 words
+  char *interface_name = strtok(ip_output, " "); // " " is delimeter
+  for(int i = 0; i < 4; ++i) {
+  	interface_name = strtok(NULL, " ");
+  }
+
+  // get source address (default interface) structure
+  struct ifreq ifr;
+  ifr.ifr_addr.sa_family = AF_INET;
+  strncpy(ifr.ifr_name, interface_name, IF_NAMESIZE - 1); 
+  if (ioctl(sockfd, SIOCGIFADDR, &ifr) == -1) {
+    perror("ioctl - SIOCGIFADDR");
     exit(EXIT_FAILURE);
   }
 
@@ -62,7 +88,7 @@ int main(int argc, char **argv) {
   iph->ip_ttl = 64; // time to live
   iph->ip_p = UDP; // transport layer protocol
   iph->ip_sum = 0;		/* set it to 0 before computing the actual checksum later */
-  iph->ip_src.s_addr = 0;
+  iph->ip_src.s_addr = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr.s_addr;
   iph->ip_dst.s_addr = din.sin_addr.s_addr;
 
   struct udphdr *udph = (struct udphdr *)(datagram + sizeof(struct ip)); // udp header pointer
